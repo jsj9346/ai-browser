@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>AI 에이전트</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <details id="settings">
+      <summary>설정</summary>
+      <form id="settings-form">
+        <label>
+          Anthropic API 키
+          <input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-..." />
+        </label>
+        <label>
+          모델
+          <select id="model">
+            <option value="claude-opus-5-5">Claude Opus 5.5</option>
+            <option value="claude-sonnet-5-5">Claude Sonnet 5.5</option>
+          </select>
+        </label>
+        <button type="submit">저장</button>
+        <p class="hint">키는 이 브라우저 프로필에 암호화 없이 저장됩니다.</p>
+      </form>
+    </details>
+
+    <main id="log" aria-live="polite">
+      <p class="empty">현재 탭에서 할 일을 알려 주세요.</p>
+    </main>
+
+    <form id="task-form">
+      <textarea id="task" rows="3" placeholder="예: 이 페이지의 핵심 내용을 요약해 줘"></textarea>
+      <div class="actions">
+        <button id="stop" type="button" hidden>중지</button>
+        <button id="run" type="submit">실행</button>
+      </div>
+    </form>
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>
