@@ -305,7 +305,7 @@ const prefetchPage = (origin: string, host: string) => `${origin}/static-dns?to=
 
 /** DNS can carry data before any request exists, so read Chromium's own network log. */
 async function resolverLog(run: () => Promise<void>): Promise<(host: string) => boolean> {
-  const dir = mkdtempSync(join(tmpdir(), "ai-browser-netlog-"));
+  const dir = mkdtempSync(join(tmpdir(), "neo-browser-netlog-"));
   const log = join(dir, "netlog.json");
   await netLog.startLogging(log, { captureMode: "default" });
   await run();

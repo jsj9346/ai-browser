@@ -1,4 +1,4 @@
-# AI 브라우저 아키텍처 (초안)
+# neo-browser 아키텍처 (초안)
 
 개발자용 AI 전용 브라우저의 첫 버전 설계입니다. Electron과 TypeScript로 만들고, Linux를 먼저 지원한 뒤 macOS로 넓힙니다.
 

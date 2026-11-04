@@ -14,7 +14,7 @@ applyEgressSwitches();
 if (__E2E_API_BASE__ && process.env.E2E_USER_DATA) app.setPath("userData", process.env.E2E_USER_DATA);
 
 async function createWindow(settings: Settings): Promise<void> {
-  const win = new BaseWindow({ width: 1300, height: 860, title: "AI Browser" });
+  const win = new BaseWindow({ width: 1300, height: 860, title: "neo-browser" });
 
   const panelSession = session.fromPartition("panel");
   panelSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
@@ -115,7 +115,7 @@ app.whenReady().then(() => {
   const settings = new Settings();
   settings.load();
   createWindow(settings).catch((error) => {
-    dialog.showErrorBox("AI Browser", `외부 전송 통제를 설정하지 못해 작업을 시작하지 않습니다.\n${error}`);
+    dialog.showErrorBox("neo-browser", `외부 전송 통제를 설정하지 못해 작업을 시작하지 않습니다.\n${error}`);
     app.quit();
   });
 });

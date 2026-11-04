@@ -180,7 +180,7 @@ async function findView(match) {
 }
 
 const isPanel = (url) => url.endsWith("/panel.html");
-const userData = mkdtempSync(join(tmpdir(), "ai-browser-e2e-"));
+const userData = mkdtempSync(join(tmpdir(), "neo-browser-e2e-"));
 const appArgs = [`--remote-debugging-port=${DEBUG_PORT}`, resolve("dist-e2e/main.cjs")];
 const app = spawn(electronPath, appArgs, {
   env: { ...process.env, E2E_USER_DATA: userData },
