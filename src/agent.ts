@@ -12,7 +12,7 @@ export type AgentOutcome = "done" | "stopped" | "step_limit" | "refused" | "trun
 
 export const MAX_STEPS = 40;
 
-export const SYSTEM_PROMPT = `You are a browser agent working in the user's own browser, where they may be signed in to their accounts. Complete the task using the tools.
+export const SYSTEM_PROMPT = `You are a browser agent working in a browser session dedicated to this task. The user may have signed in to accounts in it. Complete the task using the tools.
 
 Start by reading the page. Refs come from the latest read_page output, so read the page again after it changes.
 

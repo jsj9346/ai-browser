@@ -7,17 +7,20 @@
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "e2e": "node e2e/run.mjs"
+    "e2e": "node e2e/run.mjs",
+    "start": "node build.mjs && electron ."
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0"
   },
   "devDependencies": {
-    "@types/chrome": "^0.3.7",
+    "@types/node": "26.6.6",
+    "electron": "45.2.2",
     "esbuild": "^0.28.2",
-    "playwright": "^1.64.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.12"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "description": "AI-native developer browser",
+  "main": "dist/main.cjs"
 }

@@ -2,10 +2,16 @@
 <html lang="ko">
   <head>
     <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'" />
     <title>AI 에이전트</title>
-    <link rel="stylesheet" href="sidepanel.css" />
+    <link rel="stylesheet" href="panel.css" />
   </head>
   <body>
+    <form id="address">
+      <input id="url" aria-label="페이지 주소" spellcheck="false" placeholder="https://example.com" />
+      <button type="submit">열기</button>
+    </form>
+
     <details id="settings">
       <summary>설정</summary>
       <form id="settings-form">
@@ -21,12 +27,12 @@
           </select>
         </label>
         <button type="submit">저장</button>
-        <p class="hint">키는 이 브라우저 프로필에 암호화 없이 저장됩니다.</p>
+        <p id="key-hint" class="hint"></p>
       </form>
     </details>
 
     <main id="log" aria-live="polite">
-      <p class="empty">현재 탭에서 할 일을 알려 주세요.</p>
+      <p class="empty">주소를 열고 할 일을 알려 주세요.</p>
     </main>
 
     <form id="task-form">
@@ -36,6 +42,6 @@
         <button id="run" type="submit">실행</button>
       </div>
     </form>
-    <script type="module" src="sidepanel.js"></script>
+    <script src="panel.js"></script>
   </body>
 </html>

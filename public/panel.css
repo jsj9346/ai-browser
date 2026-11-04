@@ -85,3 +85,6 @@ input, select, textarea {
 #task-form { display: grid; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
 #task { resize: vertical; }
 .actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+#address { display: flex; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+#address input { flex: 1; min-width: 0; }

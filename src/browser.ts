@@ -1,4 +1,5 @@
 import { formatAxTree, type AXNode, type RefInfo } from "./ax";
+import { EXPRESSIONS, SELECT_CONTENTS, type GatedCdp } from "./gated-cdp";
 
 export interface ElementInfo extends RefInfo {
   attributes: Record<string, string>;
@@ -18,7 +19,7 @@ export interface Browser {
   screenshot(): Promise<string>;
 }
 
-/** The session cannot continue, e.g. the tab closed or the user cancelled debugging. */
+/** The session cannot continue, e.g. the page was closed. */
 export class SessionEndedError extends Error {}
 
 export const KEYS = {
@@ -41,78 +42,41 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class CdpBrowser implements Browser {
   private refs = new Map<number, RefInfo>();
-  private endedReason: string | null = null;
-  private openedTab: number | null = null;
 
-  private readonly onDetach = (source: chrome.debugger.Debuggee, reason: string) => {
-    if (source.tabId === this.tabId) this.endedReason = reason;
-  };
-  private readonly onTabCreated = (tab: chrome.tabs.Tab) => {
-    if (tab.openerTabId === this.tabId && tab.id !== undefined) this.openedTab = tab.id;
-  };
+  private constructor(private readonly cdp: GatedCdp) {}
 
-  private constructor(private tabId: number) {}
-
-  static async attach(tabId: number): Promise<CdpBrowser> {
-    const tab = await chrome.tabs.get(tabId);
-    // Chrome does not allow debugging its new tab page, so start from a blank page instead.
-    if (!tab.url || tab.url.startsWith("chrome://newtab")) {
-      await chrome.tabs.update(tabId, { url: "about:blank" });
-      await sleep(200);
+  static async attach(cdp: GatedCdp): Promise<CdpBrowser> {
+    const browser = new CdpBrowser(cdp);
+    for (const domain of ["Page", "DOM", "Runtime", "Accessibility"]) {
+      await browser.send(`${domain}.enable`);
     }
-    const browser = new CdpBrowser(tabId);
-    await browser.connect();
-    chrome.debugger.onDetach.addListener(browser.onDetach);
-    chrome.tabs.onCreated.addListener(browser.onTabCreated);
     return browser;
   }
 
-  async dispose(): Promise<void> {
-    chrome.debugger.onDetach.removeListener(this.onDetach);
-    chrome.tabs.onCreated.removeListener(this.onTabCreated);
-    await chrome.debugger.detach({ tabId: this.tabId }).catch(() => {});
-  }
-
-  private async connect(): Promise<void> {
-    await chrome.debugger.attach({ tabId: this.tabId }, "1.3");
-    for (const domain of ["Page", "DOM", "Runtime", "Accessibility"]) {
-      await this.send(`${domain}.enable`);
-    }
-  }
-
   private async send<T = any>(method: string, params?: object): Promise<T> {
-    if (this.endedReason) throw new SessionEndedError(`Debugging ended: ${this.endedReason}`);
+    const ended = () => new SessionEndedError(`Debugging ended: ${this.cdp.endedReason}`);
+    if (this.cdp.endedReason) throw ended();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error(`${method} timed out`)), COMMAND_TIMEOUT_MS);
     });
     try {
-      const command = chrome.debugger.sendCommand({ tabId: this.tabId }, method, params);
-      return (await Promise.race([command, timeout])) as T;
+      return await Promise.race([this.cdp.send<T>(method, params), timeout]);
     } catch (error) {
-      if (this.endedReason) throw new SessionEndedError(`Debugging ended: ${this.endedReason}`);
+      if (this.cdp.endedReason) throw ended();
       throw error;
     } finally {
       clearTimeout(timer);
     }
   }
 
-  /** Waits for loading to finish and follows a tab the page just opened. */
+  /** Waits for loading to finish. */
   private async settle(): Promise<void> {
     await sleep(300);
-    if (this.openedTab !== null) {
-      const next = this.openedTab;
-      const previous = this.tabId;
-      this.openedTab = null;
-      this.tabId = next; // Set first so detaching the old tab does not read as the session ending.
-      await chrome.debugger.detach({ tabId: previous }).catch(() => {});
-      await this.connect();
-      this.refs.clear();
-    }
     const deadline = Date.now() + SETTLE_TIMEOUT_MS;
     while (Date.now() < deadline) {
       try {
-        const { result } = await this.send("Runtime.evaluate", { expression: "document.readyState" });
+        const { result } = await this.send("Runtime.evaluate", { expression: EXPRESSIONS.readyState });
         if (result.value === "complete") return;
       } catch (error) {
         if (error instanceof SessionEndedError) throw error;
@@ -123,7 +87,7 @@ export class CdpBrowser implements Browser {
   }
 
   async url(): Promise<string> {
-    const { result } = await this.send("Runtime.evaluate", { expression: "location.href" });
+    const { result } = await this.send("Runtime.evaluate", { expression: EXPRESSIONS.href });
     return String(result.value);
   }
 
@@ -131,7 +95,7 @@ export class CdpBrowser implements Browser {
     const { nodes } = await this.send<{ nodes: AXNode[] }>("Accessibility.getFullAXTree");
     const { text, refs } = formatAxTree(nodes);
     this.refs = refs;
-    const { result } = await this.send("Runtime.evaluate", { expression: "document.title" });
+    const { result } = await this.send("Runtime.evaluate", { expression: EXPRESSIONS.title });
     return { title: String(result.value ?? ""), url: await this.url(), text };
   }
 
@@ -164,10 +128,7 @@ export class CdpBrowser implements Browser {
     const { object } = await this.send("DOM.resolveNode", { backendNodeId: ref });
     await this.send("Runtime.callFunctionOn", {
       objectId: object.objectId,
-      functionDeclaration: `function () {
-        if (typeof this.select === "function") return this.select();
-        if (this.isContentEditable) getSelection().selectAllChildren(this);
-      }`,
+      functionDeclaration: SELECT_CONTENTS,
     });
     await this.send("Input.insertText", { text });
   }
