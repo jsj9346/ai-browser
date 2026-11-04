@@ -22,8 +22,11 @@ export interface PanelApi {
   runTask(prompt: string): Promise<Notice | null>;
   stop(): Promise<void>;
   answerConfirm(id: number, answer: boolean): Promise<void>;
+  /** Lets the task reach a host the guard blocked. Only the user can do this. */
+  allowHost(host: string): Promise<void>;
   onAgentEvent(listener: (event: AgentEvent) => void): void;
   onConfirm(listener: (request: { id: number; message: string }) => void): void;
   onConfirmClosed(listener: (id: number) => void): void;
   onPageUrl(listener: (url: string) => void): void;
+  onHostBlocked(listener: (host: string) => void): void;
 }

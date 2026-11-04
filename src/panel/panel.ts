@@ -96,6 +96,18 @@ panelApi.onAgentEvent((event: AgentEvent) => {
   }
 });
 
+panelApi.onHostBlocked((host) => {
+  const line = append("blocked", `차단됨: ${host}`);
+  const allow = document.createElement("button");
+  allow.textContent = "허용";
+  allow.onclick = () => {
+    allow.remove();
+    line.textContent = `허용함: ${host} (페이지를 다시 열면 적용됩니다)`;
+    void panelApi.allowHost(host);
+  };
+  line.append(" ", allow);
+});
+
 panelApi.onPageUrl((url) => {
   urlInput.value = url;
 });

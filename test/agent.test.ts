@@ -19,6 +19,8 @@ function fakeBrowser(overrides: Partial<Browser> = {}): Browser {
   };
 }
 
+const fakeEgress = { allow: vi.fn(), takeBlockedNavigation: () => null };
+
 const tool = (name: string, input: object, id = `id_${name}`) => ({ type: "tool_use", id, name, input });
 const reply = (stop_reason: string, ...content: object[]) => ({ stop_reason, content });
 
@@ -27,7 +29,7 @@ async function run(replies: object[], browser: Browser, confirm: Confirm = async
   for (const r of replies) create.mockResolvedValueOnce(r);
   const events: AgentEvent[] = [];
   const messages: any[] = [];
-  const executor = new ToolExecutor(browser, confirm);
+  const executor = new ToolExecutor(browser, confirm, fakeEgress);
   await executor.begin();
   const outcome = await runAgent({
     client: { beta: { messages: { create } } } as any,
@@ -117,7 +119,7 @@ describe("runAgent", () => {
 describe("ToolExecutor safety", () => {
   const setup = async (browser: Browser, answer = false) => {
     const confirm = vi.fn(async () => answer);
-    const executor = new ToolExecutor(browser, confirm);
+    const executor = new ToolExecutor(browser, confirm, fakeEgress);
     await executor.begin();
     return { executor, confirm };
   };

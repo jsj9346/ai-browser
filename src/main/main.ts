@@ -1,6 +1,7 @@
 // App entry: one window with the task page on the left and the agent panel on the right.
-import { app, BaseWindow, ipcMain, Menu, session, WebContentsView, type IpcMainInvokeEvent } from "electron";
+import { app, BaseWindow, dialog, ipcMain, Menu, session, WebContentsView, type IpcMainInvokeEvent } from "electron";
 import { join } from "node:path";
+import { applyEgressSwitches } from "./process-switches";
 import { Settings } from "./settings";
 import { Task } from "./task";
 
@@ -8,9 +9,11 @@ declare const __E2E_API_BASE__: string;
 
 const PANEL_WIDTH = 400;
 
+applyEgressSwitches();
+
 if (__E2E_API_BASE__ && process.env.E2E_USER_DATA) app.setPath("userData", process.env.E2E_USER_DATA);
 
-function createWindow(settings: Settings): void {
+async function createWindow(settings: Settings): Promise<void> {
   const win = new BaseWindow({ width: 1300, height: 860, title: "AI Browser" });
 
   const panelSession = session.fromPartition("panel");
@@ -46,7 +49,7 @@ function createWindow(settings: Settings): void {
     for (const id of [...pendingConfirms.keys()]) settleConfirm(id, false);
   };
 
-  const task = new Task(
+  const task = await Task.create(
     (message) =>
       new Promise((resolve) => {
         const id = nextConfirmId++;
@@ -55,6 +58,7 @@ function createWindow(settings: Settings): void {
       }),
     (event) => toPanel("agent:event", event),
     (url) => toPanel("page:url", url),
+    (host) => toPanel("egress:blocked", host),
   );
 
   const layout = () => {
@@ -87,6 +91,7 @@ function createWindow(settings: Settings): void {
     task.stop();
     denyPendingConfirms();
   });
+  handle("egress:allow", (host: string) => task.allowBlockedHost(String(host)));
   handle("confirm:answer", (id: number, answer: boolean) => settleConfirm(Number(id), answer === true));
 
   win.on("closed", () => {
@@ -109,7 +114,10 @@ app.whenReady().then(() => {
   );
   const settings = new Settings();
   settings.load();
-  createWindow(settings);
+  createWindow(settings).catch((error) => {
+    dialog.showErrorBox("AI Browser", `외부 전송 통제를 설정하지 못해 작업을 시작하지 않습니다.\n${error}`);
+    app.quit();
+  });
 });
 
 app.on("window-all-closed", () => app.quit());

@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { KEYS, type Browser, type KeyName } from "./browser";
+import type { EgressControl } from "./egress";
 import { blockedInputReason, isSensitiveClick, isSensitiveSubmit, parseWebUrl } from "./policy";
 
 /** Asks the user to approve an action and resolves with their answer. */
@@ -73,10 +74,12 @@ export interface ToolOutput {
 
 export class ToolExecutor {
   private readonly approvedOrigins = new Set<string>();
+  private pendingBlocked: string | null = null;
 
   constructor(
     private readonly browser: Browser,
     private readonly confirm: Confirm,
+    private readonly egress: EgressControl,
   ) {}
 
   /** The user started the task on this page, so its origin is trusted for the task. */
@@ -86,6 +89,7 @@ export class ToolExecutor {
   }
 
   async run(name: string, input: any): Promise<ToolOutput> {
+    this.egress.takeBlockedNavigation(); // Only a block caused by this action counts.
     switch (name) {
       case "read_page":
         return this.readPage(input.offset);
@@ -110,7 +114,7 @@ export class ToolExecutor {
       case "navigate":
         return this.navigate(input.url);
       case "go_back":
-        await this.browser.back();
+        await this.tolerateBlock(() => this.browser.back());
         return this.afterAction("Went back.");
       default:
         return { content: `Unknown tool: ${name}`, isError: true };
@@ -183,17 +187,47 @@ export class ToolExecutor {
     ) {
       return { content: DECLINED };
     }
-    this.approvedOrigins.add(url.origin);
-    await this.browser.navigate(url.href);
+    this.approve(url);
+    await this.tolerateBlock(() => this.browser.navigate(url.href));
     return this.afterAction("Navigated.");
   }
 
+  private approve(url: URL): void {
+    this.approvedOrigins.add(url.origin);
+    this.egress.allow(url);
+  }
+
+  /** A navigation the guard stopped fails here, and afterAction then asks the user about it. */
+  private async tolerateBlock(action: () => Promise<void>): Promise<void> {
+    let blocked: string | null = null;
+    try {
+      await action();
+    } catch (error) {
+      blocked = this.egress.takeBlockedNavigation();
+      if (!blocked) throw error;
+      this.pendingBlocked = blocked;
+    }
+  }
+
   /**
-   * Clicks and key presses can leave the approved sites without going through navigate.
-   * The request has already been sent by this point, so this limits further actions
-   * on the new site. It cannot undo the navigation itself.
+   * Clicks and key presses can try to leave the approved sites without going through navigate.
+   * The egress guard stops those before the request is sent, and the user decides here.
+   * A page on an allowed host that was not approved in this run still needs approval to continue.
    */
   private async afterAction(done: string): Promise<ToolOutput> {
+    const blocked = this.pendingBlocked ?? this.egress.takeBlockedNavigation();
+    this.pendingBlocked = null;
+    if (blocked) {
+      const target = parseWebUrl(blocked);
+      if (target && (await this.confirm(`페이지가 새 사이트로 이동하려고 합니다. 허용할까요?\n${target.href}`))) {
+        this.approve(target);
+        await this.browser.navigate(target.href);
+        return { content: `${done} Current URL: ${await this.browser.url()}` };
+      }
+      // A stopped navigation can leave the browser's error page in place of the page.
+      if (!parseWebUrl(await this.browser.url())) await this.browser.back().catch(() => {});
+      return { content: `${done} The page tried to move to ${blocked}, which was not allowed, so it stayed here.` };
+    }
     const current = await this.browser.url();
     if (current === "about:blank") return { content: `${done} Current URL: ${current}` };
     const url = parseWebUrl(current);
@@ -201,7 +235,7 @@ export class ToolExecutor {
       return { content: `${done} Current URL: ${current}` };
     }
     if (url && (await this.confirm(`페이지가 새 사이트로 이동했습니다. 여기서 계속할까요?\n${current}`))) {
-      this.approvedOrigins.add(url.origin);
+      this.approve(url);
       return { content: `${done} Current URL: ${current}` };
     }
     await this.browser.back().catch(() => {});

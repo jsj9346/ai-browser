@@ -88,3 +88,5 @@ input, select, textarea {
 
 #address { display: flex; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
 #address input { flex: 1; min-width: 0; }
+.blocked { font-size: 12px; color: var(--muted); }
+.blocked button { padding: 0 8px; font-size: 12px; }

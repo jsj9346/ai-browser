@@ -22,6 +22,7 @@ const SITE_PORT = 18474;
 const DEBUG_PORT = 18475;
 const SITE = `http://127.0.0.1:${SITE_PORT}`;
 const OTHER = `http://localhost:${SITE_PORT}`;
+const IPV6 = `http://[::1]:${SITE_PORT}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let failures = 0;
@@ -32,10 +33,12 @@ function check(name, ok, detail = "") {
 
 execFileSync("node", ["build.mjs"], { env: { ...process.env, E2E_API_BASE: `http://127.0.0.1:${API_PORT}` }, stdio: "inherit" });
 
+const siteHits = [];
 const site = createServer((req, res) => {
+  siteHits.push(req.url);
   const file = req.url === "/" ? "index.html" : req.url.slice(1).split("?")[0];
   try {
-    const html = readFileSync(join("e2e/site", file), "utf8").replace("OTHER_ORIGIN", OTHER);
+    const html = readFileSync(join("e2e/site", file), "utf8").replaceAll("OTHER_ORIGIN", OTHER).replaceAll("IPV6_ORIGIN", IPV6);
     res.writeHead(200, { "content-type": "text/html" }).end(html);
   } catch {
     res.writeHead(404).end();
@@ -224,6 +227,21 @@ try {
   page.close();
   await sleep(200); // Electron refuses webContents.debugger until this client has gone.
 
+  const blockedText = () => panel.evaluate(`[...document.querySelectorAll(".blocked")].map((e) => e.textContent).join("|")`);
+  await panel.waitFor(`document.querySelectorAll(".blocked").length === 2`);
+  const blockedHosts = await blockedText();
+  check("blocked hosts are shown to the user", blockedHosts.includes("localhost") && blockedHosts.includes("[::1]"), blockedHosts);
+  check("blocked images never reached the server", !siteHits.some((u) => u.endsWith(".png")), siteHits.join(","));
+
+  await panel.evaluate(`[...document.querySelectorAll(".blocked")].find((e) => e.textContent.includes("[::1]")).querySelector("button").click()`);
+  await sleep(100);
+  await panel.click("#address button");
+  const allowDeadline = Date.now() + 5_000;
+  while (!siteHits.includes("/after-allow.png") && Date.now() < allowDeadline) await sleep(50);
+  check("a host the user allowed is reachable", siteHits.includes("/after-allow.png"), siteHits.join(","));
+  check("other hosts stay blocked after that", !siteHits.includes("/beacon.png"), siteHits.join(","));
+  await sleep(300);
+
   await panel.fill("#task", "테스트 작업을 수행해 줘");
   await panel.click("#run");
 
@@ -234,7 +252,9 @@ try {
     ["/other.html", "거부"],
     ["/other.html", "승인"],
   ];
+  let declinedHitsOther = null;
   for (const [expected, button] of answers) {
+    if (expected === "/other.html" && button === "승인") declinedHitsOther = siteHits.includes("/other.html");
     await panel.waitFor(panel.exists(".confirm"));
     const text = await panel.text(".confirm");
     check(`approval shown: ${expected} -> ${button}`, text.includes(expected), text);
@@ -256,7 +276,8 @@ try {
   check("password was not typed", !results.some((r) => r.includes("hunter2")));
   check("screenshot returned an image", results[9].includes('"media_type":"image/jpeg"'), results[9].slice(0, 200));
   check("javascript: URL was rejected", results[10].includes("Only http"), results[10]);
-  check("declined cross-origin click went back", results[11].includes("not allowed") && results[12].includes("Say hello"), results[11]);
+  check("declined cross-origin click stayed on the page", results[11].includes("not allowed") && results[12].includes("Say hello"), results[11]);
+  check("declined click sent nothing to the other site", declinedHitsOther === false);
   check("approved navigation reached the other site", results[14].includes("FOREIGN_SITE_CONTENT"), results[14]);
   check("page that opens a window continues in the same view", results[18].includes("SECOND_TAB_CONTENT"), results[18]);
 

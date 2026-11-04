@@ -13,10 +13,12 @@ const api: PanelApi = {
   runTask: (prompt) => ipcRenderer.invoke("task:run", prompt),
   stop: () => ipcRenderer.invoke("task:stop"),
   answerConfirm: (id, answer) => ipcRenderer.invoke("confirm:answer", id, answer),
+  allowHost: (host) => ipcRenderer.invoke("egress:allow", host),
   onAgentEvent: on("agent:event"),
   onConfirm: on("confirm:request"),
   onConfirmClosed: on("confirm:closed"),
   onPageUrl: on("page:url"),
+  onHostBlocked: on("egress:blocked"),
 };
 
 contextBridge.exposeInMainWorld("panelApi", api);

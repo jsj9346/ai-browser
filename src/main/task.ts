@@ -1,13 +1,14 @@
-// One task: its own in-memory session, one page view, and the conversation with the model.
+// One task: its own in-memory, egress-controlled session, one page view, and the conversation with the model.
 import Anthropic from "@anthropic-ai/sdk";
-import { session, WebContentsView, type WebContents } from "electron";
-import { randomUUID } from "node:crypto";
+import { WebContentsView, type WebContents } from "electron";
 import { runAgent, type AgentEvent, type AgentOutcome } from "../agent";
 import { CdpBrowser } from "../browser";
+import type { EgressControl } from "../egress";
 import { GatedCdp, type CdpTransport } from "../gated-cdp";
 import { parseWebUrl } from "../policy";
 import { ToolExecutor, type Confirm } from "../tools";
 import type { Notice } from "./ipc";
+import { createTaskSession, protectPage, type BlockedRequest, type TaskSession } from "./task-session";
 
 declare const __E2E_API_BASE__: string;
 
@@ -59,29 +60,60 @@ export class Task {
   readonly view: WebContentsView;
   private readonly messages: Anthropic.Beta.BetaMessageParam[] = [];
   private controller: AbortController | null = null;
+  private taskSession!: TaskSession;
+  private blockedNavigation: string | null = null;
+  private readonly offeredHosts = new Set<string>();
+  private readonly egress: EgressControl = {
+    allow: (url) => this.taskSession.allowlist.allow(url.hostname),
+    takeBlockedNavigation: () => {
+      const url = this.blockedNavigation;
+      this.blockedNavigation = null;
+      return url;
+    },
+  };
 
-  constructor(
+  /** Rejects if egress control cannot be set up, so a task never runs without it. */
+  static async create(
+    confirm: Confirm,
+    onEvent: (event: AgentEvent) => void,
+    onUrl: (url: string) => void,
+    onHostBlocked: (host: string) => void,
+  ): Promise<Task> {
+    let task: Task | null = null;
+    const taskSession = await createTaskSession({ onBlocked: (blocked) => task?.onBlocked(blocked) });
+    task = new Task(taskSession, confirm, onEvent, onUrl, onHostBlocked);
+    return task;
+  }
+
+  private constructor(
+    taskSession: TaskSession,
     private readonly confirm: Confirm,
     private readonly onEvent: (event: AgentEvent) => void,
     onUrl: (url: string) => void,
+    private readonly onHostBlocked: (host: string) => void,
   ) {
-    const pageSession = session.fromPartition(`task-${randomUUID()}`);
-    pageSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-    pageSession.setPermissionCheckHandler(() => false);
-    pageSession.on("will-download", (event) => event.preventDefault());
-
+    this.taskSession = taskSession;
     this.view = new WebContentsView({
-      webPreferences: { session: pageSession, sandbox: true, contextIsolation: true, nodeIntegration: false, devTools: false },
+      webPreferences: { session: taskSession.session, sandbox: true, contextIsolation: true, nodeIntegration: false, devTools: false },
     });
     const contents = this.view.webContents;
-    // A task has one page for now, so a page that opens a window continues in the same view.
-    contents.setWindowOpenHandler(({ url }) => {
-      if (parseWebUrl(url)) contents.loadURL(url).catch(() => {});
-      return { action: "deny" };
-    });
+    protectPage(contents);
     const report = () => onUrl(contents.getURL());
     contents.on("did-navigate", report);
     contents.on("did-navigate-in-page", report);
+  }
+
+  private onBlocked(blocked: BlockedRequest): void {
+    if (blocked.isPageNavigation) this.blockedNavigation = blocked.url;
+    if (blocked.host && !this.offeredHosts.has(blocked.host)) {
+      this.offeredHosts.add(blocked.host);
+      this.onHostBlocked(blocked.host);
+    }
+  }
+
+  /** Only hosts the guard actually blocked can be allowed this way. */
+  allowBlockedHost(host: string): void {
+    if (this.offeredHosts.delete(host)) this.taskSession.allowlist.allow(host);
   }
 
   get running(): boolean {
@@ -93,6 +125,7 @@ export class Task {
     if (this.running) return "작업이 진행 중일 때는 주소를 바꿀 수 없습니다.";
     const url = parseWebUrl(raw);
     if (!url) return "http 또는 https 주소만 열 수 있습니다.";
+    this.egress.allow(url);
     try {
       await this.view.webContents.loadURL(url.href);
       return null;
@@ -109,7 +142,7 @@ export class Task {
     try {
       transport = attachDebugger(this.view.webContents);
       const browser = await CdpBrowser.attach(new GatedCdp(transport));
-      const executor = new ToolExecutor(browser, this.confirm);
+      const executor = new ToolExecutor(browser, this.confirm, this.egress);
       await executor.begin();
       const client = new Anthropic({
         apiKey,
@@ -141,5 +174,6 @@ export class Task {
   close(): void {
     this.stop();
     if (!this.view.webContents.isDestroyed()) this.view.webContents.close();
+    void this.taskSession.dispose();
   }
 }
