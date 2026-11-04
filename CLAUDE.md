@@ -8,6 +8,8 @@ A prototype AI-native browser for developers, built with Electron and TypeScript
 
 `docs/architecture.md` holds the design and the remaining build steps. Steps 1 and 2 exist so far: one window, one task with isolation and egress control. There is no login flow or external agent connection yet.
 
+`idea.md` collects undecided development ideas, managed with the `/idea` skill. Check it when planning new work, but treat its entries as candidates, not decisions.
+
 ## Commands
 
 ```bash

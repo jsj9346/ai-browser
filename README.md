@@ -1,6 +1,17 @@
-# AI Browser
+# neo-browser
 
 개발자용 AI 전용 브라우저 프로토타입입니다. 패널에 할 일을 적으면 Claude가 페이지를 읽고 클릭, 입력, 이동을 수행합니다. Electron과 TypeScript로 만들고, Linux를 먼저 지원한 뒤 macOS로 넓힙니다. 설계는 [docs/architecture.md](docs/architecture.md)를 참고하세요.
+
+## 이름
+
+이름은 영화 〈매트릭스〉의 네오에서 따왔습니다. 사용자와 에이전트는 현실 세계에, 웹은 매트릭스에 대응합니다. neo-browser는 매트릭스로 통하는 수단이자 그 안에서 세계를 조작하는 도구입니다.
+
+| 매트릭스 | neo-browser |
+|---|---|
+| 매트릭스(가상 세계) | 웹 |
+| 잭과 하드라인(접속 통로) | 브라우저 자체 |
+
+이름의 뜻은 두 가지입니다. 그리스어 neo는 "새로운"이고, Neo는 The One의 애너그램입니다. 약어 풀이는 **N**avigate, **E**xecute, **O**perate(탐색하고, 실행하고, 대신 운용한다)입니다.
 
 ## 실행
 
