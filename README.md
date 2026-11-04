@@ -48,3 +48,7 @@ npm run e2e
 ```
 
 `npm run e2e`는 실제 Chromium에 확장을 올려 테스트 페이지를 조작합니다. Anthropic API만 가짜 서버로 대체하므로 실제 모델의 작업 성공률은 검증하지 않습니다. Playwright의 Chromium이 필요합니다.
+
+## 라이선스
+
+[MIT](LICENSE)
