@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A prototype AI-native browser for developers, built with Electron and TypeScript. Linux comes first, then macOS. The README, `docs/architecture.md` and all user-facing strings (panel UI, approval prompts) are in Korean; the system prompt and tool results sent to the model are in English.
 
-`docs/architecture.md` holds the design and the remaining build steps. Steps 1 to 3 exist so far: one window, one task with isolation, egress control, a login mode and saved profiles. Step 3 has not been tried on real sites. There is no external agent connection yet.
+`docs/architecture.md` holds the design and the remaining build steps. Steps 1 to 3 exist so far: one window, one task with isolation, egress control, a login mode and saved profiles. Step 3 has not been tried on real sites. `docs/manual-checklist.md` lists what the user has to check by hand. There is no external agent connection yet.
 
 `idea.md` collects undecided development ideas, managed with the `/idea` skill. Check it when planning new work, but treat its entries as candidates, not decisions.
 

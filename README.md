@@ -63,6 +63,8 @@ npm run e2e:security
 
 `npm run e2e:security`는 실제 작업 세션에서 격리와 전송 통제를 측정합니다. 인터넷 연결이 필요합니다. `https://example.com`을 실제로 열고, 대조용으로 `example.com` 하위의 임의 이름을 DNS로 조회합니다.
 
+실제 사이트에서 사람이 확인할 항목은 [docs/manual-checklist.md](docs/manual-checklist.md)에 있습니다.
+
 `npm run e2e`는 실제 Electron에서 테스트 페이지를 조작합니다. Anthropic API만 가짜 서버로 대체하므로 실제 모델의 작업 성공률은 검증하지 않습니다.
 
 ## 라이선스
