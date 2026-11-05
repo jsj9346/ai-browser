@@ -10,7 +10,31 @@
     <form id="address">
       <input id="url" aria-label="페이지 주소" spellcheck="false" placeholder="https://example.com" />
       <button type="submit">열기</button>
+      <button id="login-start" type="button">로그인</button>
     </form>
+
+    <section id="login" hidden>
+      <p id="login-status"></p>
+      <ul id="login-hosts" hidden></ul>
+      <div id="login-actions" class="actions"></div>
+    </section>
+
+    <details id="profiles">
+      <summary>프로필: <span id="profile-current">임시 세션</span></summary>
+      <div id="profiles-body">
+        <label>
+          세션
+          <select id="profile"></select>
+        </label>
+        <p id="profile-hint" class="hint"></p>
+        <ul id="profile-hosts"></ul>
+        <form id="profile-form">
+          <input id="profile-name" aria-label="새 프로필 이름" placeholder="새 프로필 이름" maxlength="40" />
+          <button type="submit">만들기</button>
+        </form>
+        <button id="profile-delete" type="button" hidden>이 프로필 삭제</button>
+      </div>
+    </details>
 
     <details id="settings">
       <summary>설정</summary>

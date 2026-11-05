@@ -8,7 +8,7 @@ const MODELS = new Set(["claude-opus-5-5", "claude-sonnet-5-5"]);
 const DEFAULT_MODEL = "claude-opus-5-5";
 
 /** On Linux without a keyring, safeStorage falls back to a hardcoded password, which is not encryption. */
-function canEncrypt(): boolean {
+export function canEncrypt(): boolean {
   if (!safeStorage.isEncryptionAvailable()) return false;
   if (process.platform !== "linux") return true;
   const backend = safeStorage.getSelectedStorageBackend();

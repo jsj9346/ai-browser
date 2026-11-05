@@ -10,6 +10,13 @@ export function parseWebUrl(raw: string): URL | null {
   }
 }
 
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** Login exposes credentials, so it only starts over https. A local dev server is the one exception. */
+export function isLoginUrlAllowed(url: URL): boolean {
+  return url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname));
+}
+
 const SENSITIVE_EN =
   /\b(buy|purchase|pay|payment|checkout|order|delete|remove|erase|send|transfer|submit|confirm|publish|post|tweet|share|subscribe|unsubscribe|cancel|sign ?up|sign ?out|log ?out|install|authorize|grant|accept|withdraw|deposit)\b/i;
 const SENSITIVE_KO =

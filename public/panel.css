@@ -90,3 +90,28 @@ input, select, textarea {
 #address input { flex: 1; min-width: 0; }
 .blocked { font-size: 12px; color: var(--muted); }
 .blocked button { padding: 0 8px; font-size: 12px; }
+
+#address button { flex: none; }
+#login {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--warn-border);
+  background: var(--warn-bg);
+}
+#login[hidden] { display: none; }
+#login p { margin: 0; overflow-wrap: anywhere; }
+#login ul, #profile-hosts { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; overflow-wrap: anywhere; }
+#login ul[hidden] { display: none; }
+#login-hosts { max-height: 180px; overflow-y: auto; }
+#login-hosts input { width: auto; }
+#profiles { border-bottom: 1px solid var(--border); padding: 8px 12px; }
+#profiles summary { cursor: pointer; color: var(--muted); }
+#profiles-body { display: grid; gap: 10px; padding-top: 10px; }
+#profiles-body label { display: grid; gap: 4px; }
+#profile-form { display: flex; gap: 8px; }
+#profile-form[hidden] { display: none; }
+#profile-form input { flex: 1; min-width: 0; }
+#profile-form button { flex: none; }
+#profile-hosts { font-size: 12px; }
+#profile-hosts button { padding: 0 8px; font-size: 12px; }

@@ -1,10 +1,17 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { KEYS, type Browser, type KeyName } from "./browser";
-import type { EgressControl } from "./egress";
-import { blockedInputReason, isSensitiveClick, isSensitiveSubmit, parseWebUrl } from "./policy";
+import type { EgressControl, LoginEnd } from "./egress";
+import { blockedInputReason, isLoginUrlAllowed, isSensitiveClick, isSensitiveSubmit, parseWebUrl } from "./policy";
 
 /** Asks the user to approve an action and resolves with their answer. */
 export type Confirm = (message: string) => Promise<boolean>;
+
+/** Hands the page to the user for signing in. The model never sees the page while this runs. */
+export interface LoginControl {
+  active(): boolean;
+  /** Resolves when login ends, with a browser for the page, because debugging was detached meanwhile. */
+  run(url: URL): Promise<{ end: LoginEnd; browser: Browser }>;
+}
 
 const object = (properties: Record<string, object>) => ({
   type: "object" as const,
@@ -62,10 +69,21 @@ export const TOOLS: Anthropic.Beta.BetaTool[] = [
     description: "Go to the previous page in this tab.",
     input_schema: object({}),
   },
+  {
+    name: "request_login",
+    description:
+      "Ask the user to sign in on the current page. The agent pauses and cannot see the page until the user finishes. Refs from before are invalid afterwards.",
+    input_schema: object({}),
+  },
 ].map((tool) => ({ ...tool, strict: true }));
 
 const PAGE_CHUNK = 40_000;
 const DECLINED = "The user declined this action. Do not retry it. Tell the user or choose another approach.";
+const LOGIN_RESULTS: Record<LoginEnd, string> = {
+  completed: "The user finished signing in.",
+  cancelled: "The user cancelled signing in.",
+  timed_out: "Signing in ran out of time.",
+};
 
 export interface ToolOutput {
   content: string | Anthropic.Beta.BetaImageBlockParam[];
@@ -77,9 +95,10 @@ export class ToolExecutor {
   private pendingBlocked: string | null = null;
 
   constructor(
-    private readonly browser: Browser,
+    private browser: Browser,
     private readonly confirm: Confirm,
     private readonly egress: EgressControl,
+    private readonly login?: LoginControl,
   ) {}
 
   /** The user started the task on this page, so its origin is trusted for the task. */
@@ -89,6 +108,7 @@ export class ToolExecutor {
   }
 
   async run(name: string, input: any): Promise<ToolOutput> {
+    if (this.login?.active()) return { content: "Not run: the user is signing in.", isError: true };
     this.egress.takeBlockedNavigation(); // Only a block caused by this action counts.
     switch (name) {
       case "read_page":
@@ -116,6 +136,8 @@ export class ToolExecutor {
       case "go_back":
         await this.tolerateBlock(() => this.browser.back());
         return this.afterAction("Went back.");
+      case "request_login":
+        return this.requestLogin();
       default:
         return { content: `Unknown tool: ${name}`, isError: true };
     }
@@ -190,6 +212,24 @@ export class ToolExecutor {
     this.approve(url);
     await this.tolerateBlock(() => this.browser.navigate(url.href));
     return this.afterAction("Navigated.");
+  }
+
+  /** Takes no input and shows the page's real host, so neither the model nor a page can word this prompt. */
+  private async requestLogin(): Promise<ToolOutput> {
+    if (!this.login) return { content: "Signing in is not available here.", isError: true };
+    const url = parseWebUrl(await this.browser.url());
+    if (!url || !isLoginUrlAllowed(url)) {
+      return { content: "Signing in can only start on an https page.", isError: true };
+    }
+    const asked = `${url.host}에 로그인할까요?\n승인하면 에이전트가 멈추고, 로그인이 끝날 때까지 공인 호스트가 모두 열립니다.`;
+    if (!(await this.confirm(asked))) return { content: DECLINED };
+    const { end, browser } = await this.login.run(url);
+    this.browser = browser;
+    const current = await browser.url();
+    const page = parseWebUrl(current);
+    // The user finished here, so like the page a task starts on, this origin is trusted.
+    if (end === "completed" && page) this.approvedOrigins.add(page.origin);
+    return { content: `${LOGIN_RESULTS[end]} Current URL: ${current}` };
   }
 
   private approve(url: URL): void {

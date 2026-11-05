@@ -5,6 +5,7 @@
 import { app, BrowserWindow, netLog, session, type Session } from "electron";
 import { createHash, randomBytes } from "node:crypto";
 import { createSocket } from "node:dgram";
+import { lookup } from "node:dns";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { Duplex } from "node:stream";
@@ -12,13 +13,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo, Socket } from "node:net";
 import { applyEgressSwitches } from "../src/main/process-switches";
-import { createTaskSession, protectPage, type TaskSession } from "../src/main/task-session";
+import { createTaskSession, prepareForLogin, protectPage, type TaskSession } from "../src/main/task-session";
 
 const A = "a.spike.test";
 const B = "b.spike.test";
 const CANARY = "canary.spike.test";
 const SITE_PORT = 18501;
-const toLoopback = (host: string) => (host.endsWith(".spike.test") ? "127.0.0.1" : host);
+// A name whose DNS answer turns out to be this machine. It goes through the proxy's real address check.
+const REBIND = "rebind.spike.test";
+const toLoopback = (host: string) => (host.endsWith(".spike.test") && host !== REBIND ? "127.0.0.1" : host);
+const fakeDns = (hostname: string, options: any, callback: any) => {
+  if (hostname !== REBIND) return lookup(hostname, options, callback);
+  return options?.all ? callback(null, [{ address: "127.0.0.1", family: 4 }]) : callback(null, "127.0.0.1", 4);
+};
 
 // The DNS switch applies to the whole process, so its control needs another process. The runner starts this
 // file twice: hardened like the app, and once with --control to show the checks can detect a lookup.
@@ -57,6 +64,8 @@ const site = createServer((req, res) => {
       return text(/(?:^|; )sid=([^;]+)/.exec(req.headers.cookie ?? "")?.[1] ?? "anonymous");
     case "/sw.js":
       return text(SW, "text/javascript");
+    case "/sw-beacon.js":
+      return text(`self.addEventListener("install",()=>self.skipWaiting());setInterval(()=>fetch(${JSON.stringify(to)},{mode:"no-cors"}).catch(()=>{}),200);`, "text/javascript");
     case "/worker.js":
       return text(`onmessage = (e) => fetch(e.data, { mode: "no-cors" }).catch(() => {});`, "text/javascript");
     case "/wt-worker.js":
@@ -94,7 +103,7 @@ canary.on("upgrade", (req, socket: Socket) => {
   socket.end();
 });
 const newTask = async (...hosts: string[]): Promise<TaskSession> => {
-  const task = await createTaskSession({ onBlocked: () => {}, connectHost: toLoopback });
+  const task = await createTaskSession({ onBlocked: () => {}, connectHost: toLoopback, lookup: fakeDns as any });
   hosts.forEach((h) => task.allowlist.allow(h));
   return task;
 };
@@ -298,6 +307,132 @@ async function positiveTests(originA: string, originB: string): Promise<void> {
   await real.dispose();
 }
 
+const reach = (w: BrowserWindow, url: string): Promise<string> =>
+  w.webContents.executeJavaScript(`fetch(${q(url)},{mode:"no-cors"}).then(()=>"reached",()=>"blocked")`, true);
+
+async function rawCdpReached(w: BrowserWindow, url: string, tag: string): Promise<boolean> {
+  const dbg = w.webContents.debugger;
+  dbg.attach("1.3");
+  try {
+    const { frameTree } = await dbg.sendCommand("Page.getFrameTree");
+    await dbg.sendCommand("Network.loadNetworkResource", { url, frameId: frameTree.frame.id, options: { disableCache: true, includeCredentials: false } }).catch(() => {});
+    await sleep(300);
+    return canaryHits.has(tag);
+  } finally {
+    dbg.detach();
+  }
+}
+
+/** A blocked result only means something if the same request gets through once the rule is out of the way. */
+function recordBlocked(name: string, control: boolean, guarded: boolean): void {
+  const detail = `control=${control} guarded=${guarded}`;
+  if (guarded) record("FAIL", `login: ${name}`, detail);
+  else if (!control) record("NOT_TRIGGERED", `login: ${name}`, detail);
+  else record("PASS", `login: ${name}`, detail);
+}
+
+async function loginTests(originA: string, originB: string, canaryPort: number): Promise<void> {
+  const canaryOrigin = `http://${CANARY}:${canaryPort}`;
+  const literal = `http://127.0.0.1:${canaryPort}`;
+  const rebind = `http://${REBIND}:${canaryPort}`;
+
+  let task = await newTask(A);
+  await withPage(task.session, `${originA}/`, async (w) => {
+    canaryHits.clear();
+    expectTrue("login: normal mode blocks an unlisted host", (await reach(w, `${canaryOrigin}/login/before`)) === "blocked" && !canaryHits.size);
+    task.allowlist.beginLogin(A, Date.now());
+    expectTrue("login: open mode reaches a public host", (await reach(w, `${canaryOrigin}/login/open`)) === "reached" && canaryHits.has("/login/open"));
+    expectTrue("login: open mode records the host", task.allowlist.loginState!.seenHosts.includes(CANARY));
+
+    // Local targets stay closed, in both layers. Allowing them by name afterwards shows the requests can reach.
+    await reach(w, `${literal}/login/literal`);
+    const literalCdp = await rawCdpReached(w, `${literal}/login/literal-cdp`, "/login/literal-cdp");
+    await reach(w, `${rebind}/login/rebind`);
+    const guardedLiteral = canaryHits.has("/login/literal");
+    const guardedRebind = canaryHits.has("/login/rebind");
+    task.allowlist.allow("127.0.0.1");
+    task.allowlist.allow(REBIND);
+    await reach(w, `${literal}/login/literal`);
+    const controlCdp = await rawCdpReached(w, `${literal}/login/literal-cdp`, "/login/literal-cdp");
+    await reach(w, `${rebind}/login/rebind`);
+    recordBlocked("open mode keeps a loopback address closed", canaryHits.has("/login/literal"), guardedLiteral);
+    recordBlocked("open mode keeps it closed for raw CDP too", controlCdp, literalCdp);
+    recordBlocked("a public name resolving to loopback stays closed", canaryHits.has("/login/rebind"), guardedRebind);
+    task.allowlist.remove("127.0.0.1");
+    task.allowlist.remove(REBIND);
+
+    // Frozen: what login reached keeps working, for slow second factors. New hosts do not.
+    task.allowlist.tickLogin(Date.now(), true);
+    expectTrue("login: frozen mode keeps a host already reached", (await reach(w, `${canaryOrigin}/login/frozen`)) === "reached");
+    const newHost = `http://canary2.spike.test:${canaryPort}`;
+    expectTrue("login: frozen mode blocks a new host", (await reach(w, `${newHost}/login/frozen-new`)) === "blocked" && !canaryHits.has("/login/frozen-new"));
+    const frozenCdp = await rawCdpReached(w, `${newHost}/login/frozen-cdp`, "/login/frozen-cdp");
+    task.allowlist.reopenLogin(Date.now());
+    const reopened = await reach(w, `${newHost}/login/reopened`);
+    expectTrue("login: reopening lets a new host through", reopened === "reached");
+    recordBlocked("frozen mode blocks raw CDP to a new host", reopened === "reached", frozenCdp);
+
+    // Ended: only what the user chose remains, in both layers.
+    const beforeEndCdp = await rawCdpReached(w, `${canaryOrigin}/login/before-end-cdp`, "/login/before-end-cdp");
+    task.allowlist.finishLogin();
+    task.allowlist.chooseLoginHosts([A]);
+    const endedCdp = await rawCdpReached(w, `${canaryOrigin}/login/ended-cdp`, "/login/ended-cdp");
+    expectTrue("login: an unchosen host is blocked again", (await reach(w, `${canaryOrigin}/login/ended`)) === "blocked" && !canaryHits.has("/login/ended"));
+    recordBlocked("an unchosen host is blocked again for raw CDP", beforeEndCdp, endedCdp);
+  });
+  await task.dispose();
+
+  // A WebSocket opened during login must not keep its tunnel after the host is no longer allowed.
+  const wsOrigin = originB.replace("http:", "ws:");
+  const openSocket = (w: BrowserWindow) =>
+    w.webContents.executeJavaScript(`new Promise((r)=>{const x=new WebSocket(${q(`${wsOrigin}/ws`)});window.__ws=x;window.__closed=false;x.onclose=()=>{window.__closed=true};x.onopen=()=>r("open");x.onerror=()=>r("failed")})`, true);
+  const socketClosed = async (w: BrowserWindow) => {
+    for (let i = 0; i < 20; i++) {
+      if (await w.webContents.executeJavaScript("window.__closed")) return true;
+      await sleep(100);
+    }
+    return false;
+  };
+  for (const keep of [true, false]) {
+    task = await newTask(A);
+    await withPage(task.session, `${originA}/`, async (w) => {
+      task.allowlist.beginLogin(A, Date.now());
+      const opened = await openSocket(w);
+      task.allowlist.finishLogin();
+      task.allowlist.chooseLoginHosts(keep ? [A, B] : [A]);
+      task.closeDisallowedConnections();
+      const closed = await socketClosed(w);
+      if (keep) expectTrue("login: a chosen host keeps its WebSocket", opened === "open" && !closed, `opened=${opened} closed=${closed}`);
+      else expectTrue("login: an unchosen host loses its WebSocket", opened === "open" && closed, `opened=${opened} closed=${closed}`);
+    });
+    await task.dispose();
+  }
+
+  // A service worker from before login outlives its page, and login must not let it send.
+  const swRun = async (prepare: (w: BrowserWindow) => Promise<void>, tag: string) => {
+    canaryHits.clear();
+    const swTask = await newTask(A);
+    const w = open(swTask.session, true);
+    await w.loadURL(`${originA}/`);
+    const to = encodeURIComponent(`${canaryOrigin}${tag}`);
+    await w.webContents.executeJavaScript(`navigator.serviceWorker.register("/sw-beacon.js?to=${to}").then(()=>navigator.serviceWorker.ready).then(()=>1)`, true);
+    await sleep(300);
+    const beforeLogin = canaryHits.has(tag);
+    await prepare(w);
+    swTask.allowlist.beginLogin(A, Date.now());
+    canaryHits.clear();
+    for (let i = 0; i < 30 && !canaryHits.has(tag); i++) await sleep(100);
+    const reached = canaryHits.has(tag);
+    w.destroy();
+    await swTask.dispose();
+    return { beforeLogin, reached };
+  };
+  const leftAlone = await swRun(async (w) => void (await w.loadURL("about:blank")), "/login/sw-control");
+  const prepared = await swRun((w) => prepareForLogin(w.webContents), "/login/sw-prepared");
+  expectTrue("login: a service worker is blocked before login", !leftAlone.beforeLogin && !prepared.beforeLogin);
+  recordBlocked("preparation stops an earlier service worker", leftAlone.reached, prepared.reached);
+}
+
 const NETLOG_ID = randomBytes(4).toString("hex");
 const dnsName = (kind: string) => `${kind}-${NETLOG_ID}.example.com`;
 const fetchJs = (host: string) => `fetch("http://${host}/x",{mode:"no-cors"}).catch(()=>{});1`;
@@ -370,6 +505,7 @@ async function main(): Promise<void> {
   } else {
     await isolationTests(originA, originB);
     await positiveTests(originA, originB);
+    await loginTests(originA, originB, canaryPort);
     await egressTests(originA, canaryOrigin);
     await dnsTests(originA);
   }
