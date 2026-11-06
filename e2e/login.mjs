@@ -22,7 +22,7 @@ const CDN = `http://cdn.e2e.test:${SITE_PORT}`;
 const IDP = `http://idp.e2e.test:${SITE_PORT}`;
 const NEW_HOST = `http://new.e2e.test:${SITE_PORT}`;
 const LOCAL = `http://localhost:${SITE_PORT}`;
-const SECRET = "neoE2eCookieSecret98765";
+const COOKIE_VALUE = "neo-e2e-cookie-value";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let failures = 0;
@@ -45,7 +45,7 @@ const site = createServer((req, res) => {
     case "/popup":
       return html(`<title>Provider</title><script>if(opener)opener.postMessage("login-ok","*")</script>`);
     case "/session":
-      return html("<p>signed in</p>", { "set-cookie": `sid=${SECRET}; Path=/; Max-Age=86400; HttpOnly` });
+      return html("<p>signed in</p>", { "set-cookie": `sid=${COOKIE_VALUE}; Path=/; Max-Age=86400; HttpOnly` });
     case "/whoami":
       return html(`<p id="me">${/(?:^|; )sid=([^;]+)/.exec(req.headers.cookie ?? "")?.[1] ?? "anonymous"}</p>`);
     default:
@@ -294,7 +294,7 @@ async function profileFlow(userData) {
   check("the profile has its own folder", partitions.length === 1, partitions.join());
   const folder = join(userData, "Partitions", partitions[0]);
   const cookies = readFileSync(join(folder, "Cookies"));
-  check("the login cookie is not stored in plain text", !cookies.includes(SECRET) && cookies.includes("v10"));
+  check("the login cookie is not stored in plain text", !cookies.includes(COOKIE_VALUE) && cookies.includes("v10"));
 
   ({ panel, quit } = await launch(userData, limits));
   check("a restart starts in a temporary session", (await panel.evaluate(`document.querySelector("#profile-current").textContent`)) === "임시 세션");
@@ -306,7 +306,7 @@ async function profileFlow(userData) {
 
   await openAddress(panel, `${SITE}/whoami`);
   const profilePage = await openPage((url) => url === `${SITE}/whoami`);
-  check("the login survives a restart", (await whoami(profilePage)) === SECRET);
+  check("the login survives a restart", (await whoami(profilePage)) === COOKIE_VALUE);
   profilePage.close();
 
   await panel.evaluate(`(() => { const s = document.querySelector("#profile"); s.value = ""; s.dispatchEvent(new Event("change")); })()`);
